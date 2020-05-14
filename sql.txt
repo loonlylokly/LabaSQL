@@ -1,0 +1,187 @@
+-- Database: seaport
+
+-- DROP DATABASE seaport;
+
+CREATE DATABASE seaport
+    WITH 
+    OWNER = postgres
+    ENCODING = 'UTF8'
+    LC_COLLATE = 'English_United States.1251'
+    LC_CTYPE = 'English_United States.1251'
+    TABLESPACE = pg_default
+    CONNECTION LIMIT = -1;
+	
+	
+-- 1
+CREATE TABLE Ship (
+	id serial primary key,
+	ship_name varchar(255) not NULL,
+	port_home varchar(255) not NULL,
+	privilege integer
+);
+
+CREATE TABLE Loading_place (
+	id serial primary key,
+	berth varchar(255) not NULL,
+	port varchar(255) not NULL,
+	deduction integer
+);
+
+CREATE TABLE Cargo (
+	id serial primary key,
+	cargo_name varchar(255) not NULL,
+	load_port varchar(255) not NULL,
+	price integer,
+	max_count integer
+);
+
+CREATE TABLE Loading (
+	number_journal integer not NULL,
+	date_load varchar(255) not NULL,
+	ship_id integer references Ship(id) on delete cascade on update cascade,
+	place_id integer references Loading_place(id) on delete cascade on update cascade,
+	load_id integer references Сargo(id) on delete cascade on update cascade,
+	max_count integer,
+	price integer
+);
+
+--Удаление существующих таблиц
+drop table if exists Ship;
+drop table if exists Loading_place;
+drop table if exists Cargo;
+drop table if exists Loading;
+
+--Вывод существующих таблиц
+select * from Ship;
+select * from Loading_place;
+select * from Cargo;
+select * from Loading;
+
+-- 2
+INSERT INTO Ship (id, ship_name, port_home, privilege) values
+	(001,'Балтимор','Одесса',3),
+	(002,'Генуя','Одесса',3),
+	(003,'ТПР-123','Владивосток',5),
+	(004,'Ф. Шаляпин','Мурманск',6),
+	(005,'Рейн','Калининград',4),
+	(006,'Россия','Владивосток',5);
+
+INSERT INTO Loading_place (id, berth, port, deduction) values
+	(001,'Северный','Одесса',3),
+	(002,'Южный','Одесса',4),
+	(003,'N1','Владивосток',2),
+	(004,'N2','Владивосток',2),
+	(005,'N3','Владивосток',2),
+	(006,'Основной','Калининград',4);
+	
+INSERT INTO Cargo (id, cargo_name, load_port, price, max_count) values
+	(001,'Рис','Одесса',100000,700),
+	(002,'Зерно','Одесса',80000,890),
+	(003,'Хлопок','Одесса',300000,400),
+	(004,'Сахар','Владивосток',140000,600),
+	(005,'Соль','Мурманск',120000,700),
+	(006,'Скобяные изделия','Калининград',300000,140),
+	(007,'Древесина','Мурманск',400000,260),
+	(008,'Уголь','Владивосток',400000,400);
+	
+INSERT INTO Loading (number_journal, date_load, ship_id, place_id, load_id, max_count, price) values
+	(70204,'Понедельник',001,005,002,100,8000000),
+	(70205,'Понедельник',003,003,006,4,1200000),
+	(70206,'Вторник',001,005,007,2,800000),
+	(70207,'Вторник',002,005,001,20,2000000),
+	(70208,'Вторник',005,005,002,3,240000),
+	(70209,'Среда',003,003,006,4,1200000),
+	(70210,'Среда',004,001,001,70,7000000),
+	(70211,'Среда',004,002,006,1,300000),
+	(70212,'Среда',004,002,001,10,1000000),
+	(70213,'Четверг',001,006,003,20,6000000),
+	(70214,'Четверг',003,004,002,2,16000),
+	(70215,'Четверг',004,003,004,30,4200000),
+	(70216,'Суббота',003,002,005,10,1200000),
+	(70217,'Суббота',002,003,008,20,8000000),
+	(70218,'Суббота',001,001,001,20,2000000),
+	(70219,'Суббота',005,006,004,10,1400000);
+
+-- 3
+select * from Ship, Loading_place, Cargo, Loading;
+select * from Ship;
+select * from Loading_place;
+select * from Cargo;
+select * from Loading;
+
+-- 4
+-- a
+select ship_name, privilege from Ship;
+-- b
+select DISTINCT port_home from Ship;
+select port_home from Ship;
+-- с
+select DISTINCT port_home, port, load_port from Ship, Loading_place, Сargo;
+
+
+-- 5
+-- a
+select cargo_name, price, max_count from Сargo
+where max_count < 500 ;
+-- b
+-- В базе нет таких случаев(я добавил один)
+INSERT INTO Loading_place (id, berth, port, deduction) values
+	(007,'N4','Владивосток6',6);
+-- теперь есть
+select port from Loading_place
+where  deduction > 5 and berth like ('N%'); 
+-- c
+select ship_name from Ship
+where port_home = 'Одесса';
+
+--6
+-- a
+select number_journal, date_load, ship_name, price 
+from Loading
+join Ship ON Ship.id = Loading.ship_id
+ORDER BY date_load, ship_name ASC;
+-- b
+select ship_name, date_load, port, berth, cargo_name 
+from Ship
+join Loading ON Loading.ship_id = Ship.id
+join Loading_place ON Loading.place_id = Loading_place.id
+join Cargo ON Loading.load_id = Cargo.id;
+
+-- 7
+-- a
+select ship_name, port, berth from Ship
+join Loading ON Loading.ship_id = Ship.id
+join Loading_place ON Loading.place_id = Loading_place.id
+where deduction > 3
+order by port;
+-- b
+select ship_name, port_home from Ship
+-- Что за март месяц???
+-- c
+-- Таких данных изначально нет, я добавил одну строку для проверки
+INSERT INTO Loading (number_journal, date_load, ship_id, place_id, load_id, max_count, price) values
+	(70203,'Понедельник',002,001,002,999,8000000);
+-- Теперь есть)
+select cargo_name, Cargo.price, ship_name, deduction from Cargo
+join Loading ON Loading.load_id = Cargo.id
+join Ship On Loading.ship_id = Ship.id
+join Loading_place on Loading.place_id = Loading_place.id
+where ship_name = 'Генуя' AND deduction > 2
+
+-- d
+select ship_name, Count(port) count_port from Ship
+join Loading ON Loading.ship_id = Ship.id
+join Loading_place ON Loading.place_id = Loading_place.id
+Group by ship_name
+having Count(port) > 1
+Order by count_port DESC
+
+-- Переименовать таблицу )))) (С русская раскладка)
+ALTER TABLE Сargo RENAME TO Cargo;
+
+
+
+-- 12
+SELECT id, port_home FROM Ship
+UNION
+SELECT id, port FROM Loading_place
