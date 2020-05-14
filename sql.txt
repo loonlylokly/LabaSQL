@@ -10,46 +10,41 @@ CREATE DATABASE seaport
     LC_CTYPE = 'English_United States.1251'
     TABLESPACE = pg_default
     CONNECTION LIMIT = -1;
-	
-	
 -- 1
 CREATE TABLE Ship (
 	id serial primary key,
 	ship_name varchar(255) not NULL,
 	port_home varchar(255) not NULL,
-	privilege integer
-);
-
+	privilege integer CHECK(privilege >= 0 ));
+	
 CREATE TABLE Loading_place (
 	id serial primary key,
 	berth varchar(255) not NULL,
 	port varchar(255) not NULL,
-	deduction integer
-);
-
+	deduction integer CHECK(deduction >= 0 ));
+	
 CREATE TABLE Cargo (
 	id serial primary key,
 	cargo_name varchar(255) not NULL,
 	load_port varchar(255) not NULL,
-	price integer,
-	max_count integer
-);
-
+	price integer CHECK(price >= 0 ),
+	max_count integer CHECK(max_count >= 0 ));
+	
 CREATE TABLE Loading (
 	number_journal integer not NULL,
 	date_load varchar(255) not NULL,
 	ship_id integer references Ship(id) on delete cascade on update cascade,
 	place_id integer references Loading_place(id) on delete cascade on update cascade,
-	load_id integer references Сargo(id) on delete cascade on update cascade,
-	max_count integer,
-	price integer
-);
+	load_id integer references Cargo(id) on delete cascade on update cascade,
+	max_count integer CHECK(max_count >= 0 ),
+	price integer CHECK(price >= 0 ));
 
 --Удаление существующих таблиц
+drop table if exists Loading;
 drop table if exists Ship;
 drop table if exists Loading_place;
 drop table if exists Cargo;
-drop table if exists Loading;
+
 
 --Вывод существующих таблиц
 select * from Ship;
@@ -116,12 +111,18 @@ select ship_name, privilege from Ship;
 select DISTINCT port_home from Ship;
 select port_home from Ship;
 -- с
-select DISTINCT port_home, port, load_port from Ship, Loading_place, Сargo;
+SELECT DISTINCT port_home FROM Ship
+UNION 
+SELECT port FROM Loading_place 
+UNION 
+SELECT load_port FROM Cargo 
+-- или просто селектом все порты
+select DISTINCT port_home, port, load_port from Ship, Loading_place, Cargo;
 
 
 -- 5
 -- a
-select cargo_name, price, max_count from Сargo
+select cargo_name, price, max_count from Cargo
 where max_count < 500 ;
 -- b
 -- В базе нет таких случаев(я добавил один)
@@ -155,8 +156,13 @@ join Loading_place ON Loading.place_id = Loading_place.id
 where deduction > 3
 order by port;
 -- b
-select ship_name, port_home from Ship
 -- Что за март месяц???
+select ship_name, port_home, Loading_place.port from Ship
+join Loading ON Loading.ship_id = Ship.id
+join Loading_place ON Loading.place_id = Loading_place.id
+where price > 50000 and date_load != ('Суббота') 
+and date_load != ('Воскресенье')
+
 -- c
 -- Таких данных изначально нет, я добавил одну строку для проверки
 INSERT INTO Loading (number_journal, date_load, ship_id, place_id, load_id, max_count, price) values
@@ -176,12 +182,217 @@ Group by ship_name
 having Count(port) > 1
 Order by count_port DESC
 
+
+-- 8
+UPDATE Loading 
+SET price = price * (100 - Ship.privilege)/100 
+FROM Ship WHERE Ship.id = Loading.ship_id;
+
+select price from Loading
+
+-- 9
+ALTER TABLE Loading ADD COLUMN deduction integer;
+
+UPDATE Loading 
+SET deduction = Loading_place.deduction
+FROM Loading_place WHERE Loading_place.id = Loading.place_id;
+
+select deduction from Loading
+
+-- 10
+-- a
+SELECT * FROM Ship 
+WHERE Ship.id NOT IN 
+	(SELECT DISTINCT ship_id FROM Loading 
+	 WHERE place_id IN 
+	 		(SELECT Loading_place.id FROM Loading_place 
+			 WHERE port IN ('Владивосток')));
+			 
+-- b
+SELECT * FROM Cargo 
+WHERE Cargo.id IN 
+	(SELECT DISTINCT Loading.place_id FROM Loading 
+	 WHERE ship_id IN 
+	 		(SELECT Ship.id FROM Ship 
+			 WHERE port_home IN ('Одесса')) AND Loading.date_load 
+	 							 IN ('Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье') AND Loading.max_count > 10)
+
+-- c
+-- 7a
+SELECT DISTINCT Ship.ship_name, Loading_place.berth, Loading_place.port FROM Ship, Loading_place, Loading
+WHERE Loading.place_id = Loading_place.id AND Loading_place.port != Ship.port_home 
+AND  Loading.ship_id = Ship.id AND Loading.place_id IN 
+		(SELECT Loading_place.id FROM Loading_place 
+		WHERE Loading_place.deduction > 3 )
+ORDER BY Loading_place.port
+
+-- 7c
+SELECT cargo_name, Cargo.price FROM Cargo
+WHERE Cargo.id IN 
+	(SELECT Loading.load_id FROM Loading, Ship, Loading_place 
+	 WHERE Loading.ship_id = Ship.id AND Ship.ship_name = 'Генуя' 
+	 AND Loading.place_id = Loading_place.id AND Loading_place.deduction > 2)
+	 
+
+-- 11
+-- a
+SELECT port_home FROM Ship
+WHERE Ship.id IN 
+		(SELECT Loading.ship_id FROM Loading WHERE price >= ALL (SELECT price FROM Loading))
+		
+-- b
+--Никакие??
+SELECT * FROM Cargo
+WHERE Cargo.id = ANY(SELECT Loading.load_id FROM Loading, Ship 
+						  WHERE Loading.ship_id = Ship.id AND Ship.port_home = 'Владимир' AND Loading.max_count > 20)
+
+-- с
+SELECT berth FROM Loading_place
+WHERE Loading_place.deduction <= ALL(SELECT Loading_place.deduction FROM Loading_place) 
+AND Loading_place.id IN (SELECT DISTINCT Loading.place_id FROM Loading 
+						 WHERE price > 500000 
+						 GROUP BY Loading.place_id 
+						 HAVING COUNT(*) >= 2);
+
+-- d
+SELECT DISTINCT Ship.ship_name, Ship.port_home, Loading_place.port FROM Ship, Cargo, Loading, Loading_place
+WHERE Loading.ship_id = Ship.id AND Loading.place_id = Loading_place.id 
+AND Loading.load_id = ANY(SELECT Cargo.id FROM Cargo WHERE Cargo.price > 50000)
+AND Loading.date_load = ANY(SELECT date_load FROM Loading 
+							WHERE CASE
+								WHEN date_load = 'Понедельник' THEN 1
+								WHEN date_load = 'Вторник' THEN 2
+								WHEN date_load = 'Среда' THEN 3
+								WHEN date_load = 'Четверг' THEN 4
+								WHEN date_load = 'Пятница' THEN 5
+								WHEN date_load = 'Суббота' THEN 6
+								WHEN date_load = 'Воскресенье' THEN 7
+								END <= 3)
+
 -- Переименовать таблицу )))) (С русская раскладка)
 ALTER TABLE Сargo RENAME TO Cargo;
-
 
 
 -- 12
 SELECT id, port_home FROM Ship
 UNION
 SELECT id, port FROM Loading_place
+
+-- 13
+-- a
+SELECT * FROM Loading_place 
+WHERE EXISTS (SELECT * FROM 
+	(SELECT Loading.place_id FROM Loading, Ship 
+		WHERE date_load IN ('Понедельник', 'Вторник', 'Среда', 'Четверг') 
+		AND Loading.ship_id = Ship.id AND (Ship.port_home = 'Одесса')
+		GROUP BY Loading.place_id
+		HAVING COUNT(DISTINCT Loading.ship_id) = (SELECT COUNT(Ship.id) FROM Ship WHERE port_home = 'Одесса')
+			UNION 
+		SELECT Loading.place_id FROM Loading, Ship 
+		WHERE date_load IN ('Понедельник', 'Вторник', 'Среда', 'Четверг') 
+		AND Loading.ship_id = Ship.id AND (Ship.port_home = 'Мурманск')
+		GROUP BY place_id
+		HAVING COUNT(DISTINCT Loading.ship_id) = (SELECT COUNT(Ship.id) FROM Ship WHERE port_home = 'Мурманск')) AS rez
+	WHERE rez.place_id = Loading_place.id)
+
+-- b
+SELECT * FROM Ship 
+WHERE EXISTS (SELECT * FROM 
+			  	(SELECT Ship.id FROM Ship, Loading
+				 WHERE Ship.id = Loading.ship_id 
+				 AND Loading.ship_id NOT IN (SELECT Loading.ship_id FROM Loading 
+											GROUP BY Loading.ship_id, Loading.place_id
+											HAVING COUNT(*) > 1) 
+				 GROUP BY Ship.id 
+				 HAVING COUNT(Ship.id ) = (SELECT COUNT(berth) FROM Loading_place)) AS rez 
+			  WHERE rez.id = Ship.id)
+			  
+-- c
+SELECT * FROM Cargo 
+WHERE EXISTS (SELECT rez2.load_id FROM Ship, 
+			  	(SELECT rez.load_id, COUNT(rez.load_id) AS amount FROM 
+				 	(SELECT DISTINCT Loading.load_id, Cargo.load_port, Ship.port_home FROM Loading, Cargo, Ship
+					 WHERE Cargo.load_port != Ship.port_home 
+					 AND Loading.load_id = Cargo.id AND Loading.ship_id = Ship.id) AS rez
+				 GROUP BY rez.load_id) AS rez2 
+			  WHERE Cargo.id = rez2.load_id
+			  GROUP BY rez2.load_id, rez2.amount 
+			  HAVING COUNT(DISTINCT Ship.port_home) - 1 = rez2.amount)
+			  
+-- d
+SELECT * FROM Cargo 
+WHERE EXISTS (SELECT * FROM Loading, Loading_place, Ship
+			  WHERE Loading.place_id = Loading_place.id
+			  AND Loading_place.port = 'Одесса' AND Loading.ship_id = Ship.id AND Ship.port_home = 'Владивосток'
+			  AND date_load IN ('Вторник', 'Среда', 'Четверг')
+			  AND Loading.load_id = Cargo.id)
+
+-- 14
+-- a
+SELECT LPAD(Ship.id::text, 3, '0'), Ship.ship_name, Ship.port_home, Ship.privilege FROM Ship 
+WHERE Ship.privilege < (SELECT AVG(privilege) FROM Ship)
+AND Ship.id = (SELECT rez.id FROM 
+						   		(SELECT Ship.id, Ship.port_home, Loading_place.port  FROM Ship 
+								 JOIN Loading ON Loading.ship_id = Ship.id
+								 JOIN Loading_place ON Loading.place_id = Loading_place.id 
+								 GROUP BY Ship.id, Ship.port_home, Loading_place.port ) AS rez 
+						   GROUP BY rez.id 
+						   HAVING COUNT(rez.id) = (SELECT COUNT(DISTINCT port) FROM Loading_place))
+
+-- b
+SELECT COUNT(port) FROM Loading_place WHERE port = 'Владивосток'
+
+-- c
+SELECT AVG(Loading.price) FROM Loading, Loading_place 
+WHERE Loading.place_id =  Loading_place.id AND Loading_place.port = 'Одесса'
+
+-- d
+SELECT SUM(Loading.price) FROM Loading, Loading_place, Ship 
+	WHERE Loading.place_id = Loading_place.id
+	AND	Loading.ship_id = Ship.id
+	AND Loading_place.port != Ship.port_home
+
+-- 15
+-- a
+SELECT LPAD(Ship.id::text, 3, '0') AS id, Ship.ship_name, Ship.port_home, Ship.privilege 
+FROM Ship, (SELECT ship_id, MAX(price) AS max_price FROM Loading 
+			 WHERE date_load = 'Понедельник' OR date_load = 'Вторник' 
+			 GROUP BY ship_id, date_load) AS rez
+WHERE Ship.id = rez.ship_id AND rez.max_price <= 100000
+
+-- b
+SELECT Loading.date_load, COUNT(Loading.date_load) AS КОЛВО FROM Loading, Loading_place 
+WHERE Loading.place_id = Loading_place.id AND Loading_place.port = 'Владивосток'
+GROUP BY date_load 
+ORDER BY CASE
+	WHEN date_load = 'Понедельник' THEN 1
+	WHEN date_load = 'Вторник' THEN 2
+	WHEN date_load = 'Среда' THEN 3
+	WHEN date_load = 'Четверг' THEN 4
+	WHEN date_load = 'Пятница' THEN 5
+	WHEN date_load = 'Суббота' THEN 6
+	WHEN date_load = 'Воскресенье' THEN 7
+	END
+
+-- c
+SELECT DISTINCT Loading.load_id, Cargo.cargo_name, Loading_place.port, Cargo.load_port,
+SUM(Loading.price*(1+Loading_place.deduction/100)) 
+FROM Loading, Cargo, Loading_place
+WHERE Loading.load_id = Cargo.id AND Loading.place_id = Loading_place.id
+AND Cargo.load_port = Loading_place.port 
+GROUP BY Loading.load_id, Cargo.cargo_name, Loading_place.port, Cargo.load_port
+
+-- d
+SELECT LPAD(Cargo.id::text, 3, '0') AS id, cargo_name, load_port, Cargo.price, max_count, rez.amount 
+FROM Cargo, (SELECT load_id, COUNT(DISTINCT Loading.ship_id) AS amount FROM Loading
+			WHERE CASE
+				WHEN date_load = 'Понедельник' THEN 1
+				WHEN date_load = 'Вторник' THEN 2
+				WHEN date_load = 'Среда' THEN 3
+				WHEN date_load = 'Четверг' THEN 4
+				WHEN date_load = 'Пятница' THEN 5
+				WHEN date_load = 'Суббота' THEN 6
+				WHEN date_load = 'Воскресенье' THEN 7
+			 	END > 1
+				GROUP BY load_id) AS rez
+WHERE id = rez.load_id
